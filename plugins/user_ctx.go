@@ -5,6 +5,7 @@
   it under the terms of the GNU Affero General Public License as published by
   the Free Software Foundation, either version 3 of the License, or
   (at your option) any later version.
+
   This program is distributed in the hope that it will be useful,
   but WITHOUT ANY WARRANTY; without even the implied warranty of
   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
@@ -13,49 +14,57 @@
   You should have received a copy of the GNU Affero General Public License
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
-
 package plugins
 
 import (
-	"net/http"
-
-	"github.com/varddum/syndication/config"
+	"github.com/varddum/syndication/database"
 )
-
-const (
-	API = iota
-	Content
-)
-
-type PluginType = int
 
 type (
-	Plugin struct {
-		path string
-		Type PluginType
-	}
-
-	APIPlugin struct {
-		Plugin
-
-		Method  string
-		Group   string
-		Handler func(UserCtx, http.Request, *http.Response)
-	}
-
-	Plugins struct {
-		binariesPath string
+	UserCtx struct {
+		db *database.DB
 	}
 )
 
-func APIPlugins(withConfig) {
+func NewUserCtx() UserCtx {
+	return UserCtx{}
+}
+
+func (c UserCtx) Entries() {
 
 }
 
-func (s *Plugins) loadAPIPlugins() error {
-	return nil
+func (c UserCtx) EntriesFromCategory() {
+
 }
 
-func (s *Plugins) delegateEvent() error {
-	return nil
+func (c UserCtx) EntriesFromFeed() {
+
+}
+
+func (c UserCtx) EntriesFromTag() {
+
+}
+
+func (c UserCtx) Feeds() {
+
+}
+
+func (c UserCtx) FeedsFromCategory() {
+}
+
+func (c UserCtx) Categories() {
+
+}
+
+func (c UserCtx) Category() {
+
+}
+
+func (c UserCtx) Tags() {
+
+}
+
+func (c UserCtx) Tag() {
+
 }

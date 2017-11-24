@@ -50,6 +50,15 @@ const (
 )
 
 type (
+	Plugin struct {
+		Name string
+		Path string
+	}
+
+	Plugins struct {
+		Plugins []Plugin
+	}
+
 	// Server represents the complete configuration for Syndication's REST server component.
 	Server struct {
 		AuthSecret            string   `toml:"auth_secret"`

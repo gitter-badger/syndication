@@ -785,6 +785,9 @@ func (s *Server) registerMiddleware() {
 	}
 }
 
+func (s *Server) RegisterPluginHandlers() {
+}
+
 func (s *Server) registerHandlers() {
 	v1 := s.versionGroups["v1"]
 
