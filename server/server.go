@@ -30,6 +30,7 @@ import (
 	"github.com/varddum/syndication/config"
 	"github.com/varddum/syndication/database"
 	"github.com/varddum/syndication/models"
+	"github.com/varddum/syndication/plugins"
 	"github.com/varddum/syndication/sync"
 
 	"github.com/dgrijalva/jwt-go"
@@ -54,6 +55,7 @@ type (
 		handle        *echo.Echo
 		db            *database.DB
 		sync          *sync.Sync
+		plugins       *plugins.Plugins
 		config        config.Server
 		versionGroups map[string]*echo.Group
 	}
@@ -66,11 +68,12 @@ type (
 )
 
 // NewServer creates a new server instance
-func NewServer(db *database.DB, sync *sync.Sync, config config.Server) *Server {
+func NewServer(db *database.DB, sync *sync.Sync, plugins *plugins.Plugins, config config.Server) *Server {
 	server := Server{
 		handle:        echo.New(),
 		db:            db,
 		sync:          sync,
+		plugins:       plugins,
 		config:        config,
 		versionGroups: map[string]*echo.Group{},
 	}
@@ -848,6 +851,29 @@ func (s *Server) registerHandlers() {
 	v1.OPTIONS("/entries/stats", s.OptionsHandler)
 	v1.OPTIONS("/entries/:entryID", s.OptionsHandler)
 	v1.OPTIONS("/entries/:entryID/mark", s.OptionsHandler)
+}
+
+func (s *Server) registerPluginHandlers() {
+	apiPlugins := s.plugins.APIPlugins()
+	for _, plugin := range apiPlugins {
+		endpoints := plugin.Endpoints()
+		for _, endpoint := range endpoints {
+			if endpoint.Group != "" {
+				grp := s.handle.Group(endpoint.Group)
+				grp.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
+					ctx := plugins.UserCtx{}
+					endpoint.Handler(ctx, c.Response().Writer, c.Request())
+					return nil
+				})
+			} else {
+				s.handle.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
+					ctx := plugins.UserCtx{}
+					endpoint.Handler(ctx, c.Response().Writer, c.Request())
+					return nil
+				})
+			}
+		}
+	}
 }
 
 func newError(err error, c *echo.Context) error {

@@ -18,44 +18,144 @@ package plugins
 
 import (
 	"net/http"
+	"plugin"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/varddum/syndication/config"
 )
 
-const (
-	API = iota
-	Content
-)
-
-type PluginType = int
+// RequestHandler represents the function type for Endpoint Handlers in API Plugins
+type RequestHandler = func(UserCtx, http.ResponseWriter, *http.Request)
 
 type (
-	Plugin struct {
-		path string
-		Type PluginType
+	// Plugin collects properties for all plugins
+	Plugin interface {
+		Path() string
+		Name() string
 	}
 
-	APIPlugin struct {
-		Plugin
-
+	// Endpoint represents an API Endpoint that can be registered by an API Plugin.
+	Endpoint struct {
+		Path    string
 		Method  string
 		Group   string
-		Handler func(UserCtx, http.Request, *http.Response)
+		Handler RequestHandler
 	}
 
+	// APIPlugin collects information on an API Plugin and the endpoints it registers.
+	APIPlugin struct {
+		name      string
+		endpoints []Endpoint
+		path      string
+	}
+
+	// Plugins manages the available plugins configured and registered for a Syndication instance.
 	Plugins struct {
-		binariesPath string
+		apiPlugins []APIPlugin
+	}
+
+	APIPluginError struct {
+		ErrorMsg string
 	}
 )
 
-func APIPlugins(withConfig) {
-
+func (e APIPluginError) Error() string {
+	return e.ErrorMsg
 }
 
-func (s *Plugins) loadAPIPlugins() error {
+func (p APIPlugin) Path() string {
+	return p.path
+}
+
+func (p APIPlugin) Name() string {
+	return p.name
+}
+
+func NewAPIPlugin(name string) APIPlugin {
+	return APIPlugin{name: name}
+}
+
+func (p *APIPlugin) Endpoints() []Endpoint {
+	return p.endpoints
+}
+
+func (p *APIPlugin) RegisterEndpoint(endpnt Endpoint) error {
+	if endpnt.Handler == nil {
+		return APIPluginError{"A handler is required."}
+	}
+
+	if endpnt.Method == "" {
+		return APIPluginError{"A method is required."}
+	}
+
+	if endpnt.Path == "" {
+		return APIPluginError{"A path is required."}
+	}
+
+	if p.checkConflictingPaths(endpnt) {
+		return APIPluginError{"The path " + endpnt.Path + "for method " + endpnt.Method + " already exists."}
+	}
+
+	p.endpoints = append(p.endpoints, endpnt)
+
 	return nil
 }
 
-func (s *Plugins) delegateEvent() error {
-	return nil
+func (p APIPlugin) checkConflictingPaths(incomingEndpnt Endpoint) bool {
+	// TODO: This will be a linear search for now.
+	for _, endpnt := range p.endpoints {
+		if endpnt.Path == incomingEndpnt.Path && endpnt.Method == incomingEndpnt.Method {
+			return true
+		}
+	}
+
+	return false
+}
+
+func NewPlugins(config config.Plugins) Plugins {
+	plugins := Plugins{}
+
+	plugins.loadPlugins(config.Plugins)
+
+	return plugins
+}
+
+func (s *Plugins) loadPlugins(fromConfigs []config.Plugin) {
+	for _, config := range fromConfigs {
+		plgn, err := plugin.Open(config.Path)
+		if err != nil {
+			log.Error(err, ". Skipping.")
+			continue
+		}
+
+		initFuncSymb, err := plgn.Lookup("Initialize")
+		if err != nil {
+			log.Error(err, ". Skipping.")
+			continue
+		}
+
+		initFunc, ok := initFuncSymb.(func() (Plugin, error))
+		if !ok {
+			log.Error("Invalid Initialization function.")
+			continue
+		}
+
+		incomingPlgn, err := initFunc()
+		if err != nil {
+			log.Error(err, ". Skpping.")
+			continue
+		}
+
+		switch t := incomingPlgn.(type) {
+		case APIPlugin:
+			s.apiPlugins = append(s.apiPlugins, t)
+		default:
+			log.Error("Unrecognized plugin type.")
+		}
+
+	}
+}
+
+func (s *Plugins) APIPlugins() []APIPlugin {
+	return s.apiPlugins
 }

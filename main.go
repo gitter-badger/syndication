@@ -23,9 +23,11 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/urfave/cli"
+
 	"github.com/varddum/syndication/admin"
 	"github.com/varddum/syndication/config"
 	"github.com/varddum/syndication/database"
+	"github.com/varddum/syndication/plugins"
 	"github.com/varddum/syndication/server"
 	"github.com/varddum/syndication/sync"
 )
@@ -104,7 +106,9 @@ func startApp(c *cli.Context) error {
 
 	sync.Start()
 
-	server := server.NewServer(db, sync, conf.Server)
+	plugins := plugins.NewPlugins(conf.Plugins)
+
+	server := server.NewServer(db, sync, &plugins, conf.Server)
 	if err = server.Start(); err != nil {
 		color.Red(err.Error())
 	}
