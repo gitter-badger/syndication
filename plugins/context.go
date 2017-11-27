@@ -18,20 +18,31 @@ package plugins
 
 import (
 	"github.com/varddum/syndication/database"
+	"github.com/varddum/syndication/models"
 )
 
 type (
+	APICtx struct {
+		db   *database.DB
+		User *UserCtx
+	}
+
 	UserCtx struct {
-		db *database.DB
+		db   *database.DB
+		user *models.User
 	}
 )
 
-func NewUserCtx() UserCtx {
-	return UserCtx{}
+func NewUserCtx(db *database.DB, user *models.User) UserCtx {
+	return UserCtx{db, user}
 }
 
-func (c UserCtx) Entries() {
+func (c APICtx) HasUser() bool {
+	return c.User != nil
+}
 
+func (c UserCtx) Entries(orderByNewest bool, marker models.Marker) ([]models.Entry, error) {
+	return c.db.Entries(orderByNewest, marker, c.user)
 }
 
 func (c UserCtx) EntriesFromCategory() {

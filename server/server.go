@@ -41,6 +41,8 @@ import (
 
 const echoSyndUserKey = "syndUser"
 
+var skippablePaths []string
+
 type (
 	// EntryQueryParams maps query parameters used when GETting entries resources
 	EntryQueryParams struct {
@@ -52,12 +54,12 @@ type (
 	// Server represents a echo server instance and holds references to other components
 	// needed for the REST API handlers.
 	Server struct {
-		handle        *echo.Echo
-		db            *database.DB
-		sync          *sync.Sync
-		plugins       *plugins.Plugins
-		config        config.Server
-		versionGroups map[string]*echo.Group
+		handle  *echo.Echo
+		db      *database.DB
+		sync    *sync.Sync
+		plugins *plugins.Plugins
+		config  config.Server
+		groups  map[string]*echo.Group
 	}
 
 	// ErrorResp represents a common format for error responses returned by a Server
@@ -70,24 +72,32 @@ type (
 // NewServer creates a new server instance
 func NewServer(db *database.DB, sync *sync.Sync, plugins *plugins.Plugins, config config.Server) *Server {
 	server := Server{
-		handle:        echo.New(),
-		db:            db,
-		sync:          sync,
-		plugins:       plugins,
-		config:        config,
-		versionGroups: map[string]*echo.Group{},
+		handle:  echo.New(),
+		db:      db,
+		sync:    sync,
+		plugins: plugins,
+		config:  config,
+		groups:  map[string]*echo.Group{},
 	}
 
-	server.versionGroups["v1"] = server.handle.Group("v1")
+	server.groups["v1"] = server.handle.Group("v1")
+	apiPlugins := plugins.APIPlugins()
+	for _, plugin := range apiPlugins {
+		for _, endpnt := range plugin.Endpoints() {
+			if endpnt.Group != "" {
+				server.groups[endpnt.Group] = server.handle.Group(endpnt.Group)
+			}
+		}
+	}
 
 	if config.EnableTLS {
 		server.handle.AutoTLSManager.HostPolicy = autocert.HostWhitelist(config.Domain)
 		server.handle.AutoTLSManager.Cache = autocert.DirCache(config.CertCacheDir)
 	}
 
-	server.registerMiddleware()
 	server.registerHandlers()
 	server.registerPluginHandlers()
+	server.registerMiddleware()
 
 	return &server
 }
@@ -134,7 +144,7 @@ func (s *Server) checkAuth(next echo.HandlerFunc) echo.HandlerFunc {
 			return next(c)
 		}
 
-		if strings.HasSuffix(c.Path(), "/login") || strings.HasSuffix(c.Path(), "/register") {
+		if isPathSkippable(c.Path()) {
 			return next(c)
 		}
 
@@ -749,51 +759,58 @@ func (s *Server) GetStatsForEntries(c echo.Context) error {
 }
 
 func (s *Server) registerMiddleware() {
-	for version, group := range s.versionGroups {
-		group.Use(s.assumeJSONContentType)
+	s.handle.Use(s.assumeJSONContentType)
 
-		group.Use(middleware.CORS())
+	s.handle.Use(middleware.CORS())
 
-		group.Use(middleware.SecureWithConfig(middleware.SecureConfig{
-			XSSProtection:      "",
-			XFrameOptions:      "",
-			ContentTypeNosniff: "nosniff", HSTSMaxAge: 3600,
-			ContentSecurityPolicy: "default-src 'self'",
-		}))
+	s.handle.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+		XSSProtection:      "",
+		XFrameOptions:      "",
+		ContentTypeNosniff: "nosniff", HSTSMaxAge: 3600,
+		ContentSecurityPolicy: "default-src 'self'",
+	}))
 
-		group.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
-			StackSize:         1 << 10, // 1 KB
-			DisablePrintStack: s.config.EnablePanicPrintStack,
-		}))
+	s.handle.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
+		StackSize:         1 << 10, // 1 KB
+		DisablePrintStack: s.config.EnablePanicPrintStack,
+	}))
 
-		group.Use(middleware.JWTWithConfig(middleware.JWTConfig{
-			Skipper: func(c echo.Context) bool {
-				if c.Request().Method == "OPTIONS" {
-					return true
-				}
+	s.handle.Use(middleware.JWTWithConfig(middleware.JWTConfig{
+		Skipper: func(c echo.Context) bool {
+			if c.Request().Method == "OPTIONS" {
+				return true
+			}
 
-				if c.Path() == "/"+version+"/login" || c.Path() == "/"+version+"/register" {
-					return true
-				}
-				return false
-			},
-			SigningKey:    []byte(s.config.AuthSecret),
-			SigningMethod: "HS256",
-		}))
+			return isPathSkippable(c.Path())
+		},
+		SigningKey:    []byte(s.config.AuthSecret),
+		SigningMethod: "HS256",
+	}))
 
-		group.Use(s.checkAuth)
+	s.handle.Use(s.checkAuth)
 
-		if s.config.EnableRequestLogs {
-			group.Use(middleware.Logger())
-		}
+	if s.config.EnableRequestLogs {
+		s.handle.Use(middleware.Logger())
 	}
 }
 
+func isPathSkippable(path string) bool {
+	for _, skpPath := range skippablePaths {
+		if skpPath == path {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (s *Server) registerHandlers() {
-	v1 := s.versionGroups["v1"]
+	v1 := s.groups["v1"]
 
 	v1.POST("/login", s.Login)
 	v1.POST("/register", s.Register)
+
+	skippablePaths = append(skippablePaths, "/v1/login", "/v1/register")
 
 	v1.POST("/feeds", s.NewFeed)
 	v1.GET("/feeds", s.GetFeeds)
@@ -856,20 +873,43 @@ func (s *Server) registerPluginHandlers() {
 	for _, plugin := range apiPlugins {
 		endpoints := plugin.Endpoints()
 		for _, endpoint := range endpoints {
-			if endpoint.Group != "" {
-				grp := s.handle.Group(endpoint.Group)
-				grp.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
-					ctx := plugins.UserCtx{}
-					endpoint.Handler(ctx, c.Response().Writer, c.Request())
-					return nil
-				})
+			s.registerEndpoint(endpoint)
+		}
+	}
+}
+
+func (s *Server) registerEndpoint(endpoint plugins.Endpoint) {
+	if endpoint.Group != "" {
+		grp := s.handle.Group(endpoint.Group)
+		s.groups[endpoint.Group] = grp
+		grp.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
+			var ctx plugins.APICtx
+			var userCtx plugins.UserCtx
+			user, ok := c.Get(echoSyndUserKey).(models.User)
+			if endpoint.NeedsUser && ok {
+				userCtx = plugins.NewUserCtx(s.db, &user)
+				ctx = plugins.APICtx{User: &userCtx}
 			} else {
-				s.handle.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
-					ctx := plugins.UserCtx{}
-					endpoint.Handler(ctx, c.Response().Writer, c.Request())
-					return nil
-				})
+				ctx = plugins.APICtx{}
 			}
+
+			c.Logger().Print(ctx)
+			endpoint.Handler(ctx, c.Response().Writer, c.Request())
+			return nil
+		})
+
+		if !endpoint.NeedsUser {
+			skippablePaths = append(skippablePaths, "/"+endpoint.Group+endpoint.Path)
+		}
+	} else {
+		s.handle.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
+			ctx := plugins.APICtx{}
+			endpoint.Handler(ctx, c.Response().Writer, c.Request())
+			return nil
+		})
+
+		if !endpoint.NeedsUser {
+			skippablePaths = append(skippablePaths, "/"+endpoint.Path)
 		}
 	}
 }

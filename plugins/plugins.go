@@ -24,7 +24,7 @@ import (
 )
 
 // RequestHandler represents the function type for Endpoint Handlers in API Plugins
-type RequestHandler = func(UserCtx, http.ResponseWriter, *http.Request)
+type RequestHandler = func(APICtx, http.ResponseWriter, *http.Request)
 
 type InitFunc = func() (Plugin, error)
 
@@ -37,10 +37,11 @@ type (
 
 	// Endpoint represents an API Endpoint that can be registered by an API Plugin.
 	Endpoint struct {
-		Path    string
-		Method  string
-		Group   string
-		Handler RequestHandler
+		NeedsUser bool
+		Path      string
+		Method    string
+		Group     string
+		Handler   RequestHandler
 	}
 
 	// APIPlugin collects information on an API Plugin and the endpoints it registers.

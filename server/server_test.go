@@ -30,12 +30,11 @@ import (
 	"testing"
 	"time"
 
-	//"github.com/stretchr/testify/suite"
-	//"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/varddum/syndication/config"
 	"github.com/varddum/syndication/database"
 	"github.com/varddum/syndication/models"
+	"github.com/varddum/syndication/plugins"
 	"github.com/varddum/syndication/sync"
 )
 
@@ -1360,7 +1359,8 @@ func (suite *ServerTestSuite) startServer() {
 	})
 
 	if suite.server == nil {
-		suite.server = NewServer(suite.db, suite.sync, conf.Server)
+		plugins := new(plugins.Plugins)
+		suite.server = NewServer(suite.db, suite.sync, plugins, conf.Server)
 		suite.server.handle.HideBanner = true
 		go suite.server.Start()
 	}
