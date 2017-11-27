@@ -49,15 +49,6 @@ const (
 )
 
 type (
-	Plugin struct {
-		Name string
-		Path string
-	}
-
-	Plugins struct {
-		Plugins []Plugin
-	}
-
 	// Server represents the complete configuration for Syndication's REST server component.
 	Server struct {
 		AuthSecret            string   `toml:"auth_secret"`
@@ -95,7 +86,7 @@ type (
 
 	// Config collects all configuration types
 	Config struct {
-		Plugins   Plugins
+		Plugins   []string
 		Database  `toml:"-"`
 		Databases map[string]Database `toml:"database"`
 		Server    Server
@@ -210,9 +201,9 @@ func (c *Config) getSecretFromFile(path string) error {
 }
 
 func (c *Config) parsePlugins() error {
-	var validPlugins []Plugin
-	for _, plugin := range c.Plugins.Plugins {
-		_, err := os.Stat(plugin.Path)
+	var validPlugins []string
+	for _, plugin := range c.Plugins {
+		_, err := os.Stat(plugin)
 		if err != nil {
 			log.Warn(err, ". Skipping")
 			continue
@@ -221,7 +212,7 @@ func (c *Config) parsePlugins() error {
 		validPlugins = append(validPlugins, plugin)
 	}
 
-	c.Plugins.Plugins = validPlugins
+	c.Plugins = validPlugins
 
 	return nil
 }

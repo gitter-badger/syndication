@@ -87,6 +87,7 @@ func NewServer(db *database.DB, sync *sync.Sync, plugins *plugins.Plugins, confi
 
 	server.registerMiddleware()
 	server.registerHandlers()
+	server.registerPluginHandlers()
 
 	return &server
 }
@@ -786,9 +787,6 @@ func (s *Server) registerMiddleware() {
 			group.Use(middleware.Logger())
 		}
 	}
-}
-
-func (s *Server) RegisterPluginHandlers() {
 }
 
 func (s *Server) registerHandlers() {

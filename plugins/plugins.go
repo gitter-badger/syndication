@@ -21,11 +21,12 @@ import (
 	"plugin"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/varddum/syndication/config"
 )
 
 // RequestHandler represents the function type for Endpoint Handlers in API Plugins
 type RequestHandler = func(UserCtx, http.ResponseWriter, *http.Request)
+
+type InitFunc = func() (Plugin, error)
 
 type (
 	// Plugin collects properties for all plugins
@@ -112,17 +113,17 @@ func (p APIPlugin) checkConflictingPaths(incomingEndpnt Endpoint) bool {
 	return false
 }
 
-func NewPlugins(config config.Plugins) Plugins {
+func NewPlugins(pluginPaths []string) Plugins {
 	plugins := Plugins{}
 
-	plugins.loadPlugins(config.Plugins)
+	plugins.loadPlugins(pluginPaths)
 
 	return plugins
 }
 
-func (s *Plugins) loadPlugins(fromConfigs []config.Plugin) {
-	for _, config := range fromConfigs {
-		plgn, err := plugin.Open(config.Path)
+func (s *Plugins) loadPlugins(paths []string) {
+	for _, path := range paths {
+		plgn, err := plugin.Open(path)
 		if err != nil {
 			log.Error(err, ". Skipping.")
 			continue
@@ -134,7 +135,7 @@ func (s *Plugins) loadPlugins(fromConfigs []config.Plugin) {
 			continue
 		}
 
-		initFunc, ok := initFuncSymb.(func() (Plugin, error))
+		initFunc, ok := initFuncSymb.(InitFunc)
 		if !ok {
 			log.Error("Invalid Initialization function.")
 			continue
