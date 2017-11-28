@@ -23,7 +23,6 @@ import (
 
 type (
 	APICtx struct {
-		db   *database.DB
 		User *UserCtx
 	}
 

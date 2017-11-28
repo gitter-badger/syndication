@@ -23,6 +23,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -879,38 +880,36 @@ func (s *Server) registerPluginHandlers() {
 }
 
 func (s *Server) registerEndpoint(endpoint plugins.Endpoint) {
+	var fullPath string
+	handlerWrapper := func(c echo.Context) error {
+		var ctx plugins.APICtx
+		var userCtx plugins.UserCtx
+		user, ok := c.Get(echoSyndUserKey).(models.User)
+		if endpoint.NeedsUser && ok {
+			userCtx = plugins.NewUserCtx(s.db, &user)
+			ctx = plugins.APICtx{User: &userCtx}
+		} else {
+			ctx = plugins.APICtx{}
+		}
+
+		endpoint.Handler(ctx, c.Response().Writer, c.Request())
+		return nil
+	}
+
 	if endpoint.Group != "" {
 		grp := s.handle.Group(endpoint.Group)
 		s.groups[endpoint.Group] = grp
-		grp.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
-			var ctx plugins.APICtx
-			var userCtx plugins.UserCtx
-			user, ok := c.Get(echoSyndUserKey).(models.User)
-			if endpoint.NeedsUser && ok {
-				userCtx = plugins.NewUserCtx(s.db, &user)
-				ctx = plugins.APICtx{User: &userCtx}
-			} else {
-				ctx = plugins.APICtx{}
-			}
+		grp.Add(endpoint.Method, endpoint.Path, handlerWrapper)
 
-			c.Logger().Print(ctx)
-			endpoint.Handler(ctx, c.Response().Writer, c.Request())
-			return nil
-		})
-
-		if !endpoint.NeedsUser {
-			skippablePaths = append(skippablePaths, "/"+endpoint.Group+endpoint.Path)
-		}
+		fullPath = path.Join("/", endpoint.Group, "/", endpoint.Path)
 	} else {
-		s.handle.Add(endpoint.Method, endpoint.Path, func(c echo.Context) error {
-			ctx := plugins.APICtx{}
-			endpoint.Handler(ctx, c.Response().Writer, c.Request())
-			return nil
-		})
+		s.handle.Add(endpoint.Method, endpoint.Path, handlerWrapper)
 
-		if !endpoint.NeedsUser {
-			skippablePaths = append(skippablePaths, "/"+endpoint.Path)
-		}
+		fullPath = path.Join("/", endpoint.Path)
+	}
+
+	if !endpoint.NeedsUser {
+		skippablePaths = append(skippablePaths, fullPath)
 	}
 }
 
